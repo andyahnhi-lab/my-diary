@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>나의 일기장</title>
+<style>
+:root{--bg:#faf6ef;--card:#fff;--ink:#3b3228;--sub:#8a7d6e;--line:#e8dfd0;--accent:#c0773a;--accent2:#f3e4d0}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1b18;--card:#2a2622;--ink:#efe6d9;--sub:#a09384;--line:#3b352e;--accent:#e09a5a;--accent2:#3a2f24}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Serif KR","Nanum Myeongjo",Georgia,serif;line-height:1.7}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);padding:6px 12px;border-radius:8px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:#c0392b}
+header{display:flex;align-items:center;gap:8px;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{margin:0;font-size:1.3rem;flex:1}
+main{display:grid;grid-template-columns:320px 1fr;gap:20px;max-width:1100px;margin:20px auto;padding:0 16px}
+@media (max-width:760px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.cal .dow{font-size:.75rem;color:var(--sub)}
+.cal .day{aspect-ratio:1;border:0;background:none;border-radius:8px;position:relative;padding:0}
+.cal .day.has::after{content:"";position:absolute;bottom:4px;left:50%;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--accent)}
+.cal .day.today{outline:1px solid var(--accent)}
+.cal .day.sel{background:var(--accent);color:#fff}
+.cal .day.sel::after{background:#fff}
+.search{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin:12px 0 8px}
+.list{max-height:320px;overflow:auto}
+.item{padding:8px;border-radius:8px;cursor:pointer;border-bottom:1px dashed var(--line)}
+.item:hover{background:var(--accent2)}
+.item small{color:var(--sub)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.row input[type=date],.row select{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.title{flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-weight:bold}
+textarea{width:100%;min-height:340px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);resize:vertical;font-size:1.02rem}
+.status{color:var(--sub);font-size:.85rem;margin-left:auto}
+.lock{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:10}
+.lock .card{text-align:center;width:300px}
+.lock input{width:100%;padding:10px;text-align:center;letter-spacing:.4em;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin:10px 0;font-size:1.2rem}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<div id="lock" class="lock hidden">
+  <div class="card">
+    <h2>🔒 나의 일기장</h2>
+    <p id="lockMsg">비밀번호를 입력하세요</p>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="12">
+    <button class="primary" id="unlockBtn">열기</button>
+  </div>
+</div>
+
+<header>
+  <h1>📔 나의 일기장</h1>
+  <button id="exportBtn">내보내기</button>
+  <button id="importBtn">가져오기</button>
+  <button id="pinBtn">🔑 비밀번호</button>
+  <input id="importFile" type="file" accept="application/json" class="hidden">
+</header>
+
+<main>
+  <aside class="card">
+    <div class="cal-head">
+      <button id="prev">◀</button>
+      <strong id="monthLabel"></strong>
+      <button id="next">▶</button>
+    </div>
+    <div class="cal" id="cal"></div>
+    <input class="search" id="search" placeholder="일기 검색 (제목·내용)">
+    <div class="list" id="list"></div>
+  </aside>
+
+  <section class="card">
+    <div class="row">
+      <input type="date" id="date">
+      <select id="mood">
+        <option value="">기분</option>
+        <option>😊</option><option>😄</option><option>😌</option><option>😐</option>
+        <option>😢</option><option>😡</option><option>😴</option><option>🥰</option>
+      </select>
+      <select id="weather">
+        <option value="">날씨</option>
+        <option>☀️</option><option>⛅</option><option>☁️</option><option>🌧️</option>
+        <option>⛈️</option><option>❄️</option><option>🌫️</option>
+      </select>
+      <input class="title" id="title" placeholder="제목">
+    </div>
+    <textarea id="body" placeholder="오늘은 어떤 하루였나요?"></textarea>
+    <div class="row" style="margin:10px 0 0">
+      <button class="primary" id="saveBtn">저장</button>
+      <button class="danger" id="delBtn">삭제</button>
+      <span class="status" id="status"></span>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const KEY = 'diary.entries.v1', PIN_KEY = 'diary.pin.v1';
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, '0');
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const today = iso(new Date());
+
+  // 저장소 (날짜 -> {title, body, mood, weather, updated})
+  let entries = {};
+  try { entries = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { entries = {}; }
+  const persist = () => localStorage.setItem(KEY, JSON.stringify(entries));
+
+  let selected = today, view = new Date();
+  view.setDate(1);
+
+  // ---------- 비밀번호 잠금 ----------
+  async function hash(s) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('diary:' + s));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  const savedPin = () => localStorage.getItem(PIN_KEY);
+  function showLock() {
+    if (!savedPin()) return $('lock').classList.add('hidden');
+    $('lock').classList.remove('hidden'); $('pin').value = ''; $('pin').focus();
+  }
+  async function tryUnlock() {
+    if (await hash($('pin').value) === savedPin()) $('lock').classList.add('hidden');
+    else { $('lockMsg').textContent = '비밀번호가 틀렸어요'; $('pin').value = ''; }
+  }
+  $('unlockBtn').onclick = tryUnlock;
+  $('pin').onkeydown = e => e.key === 'Enter' && tryUnlock();
+  $('pinBtn').onclick = async () => {
+    const msg = savedPin() ? '새 비밀번호를 입력하세요 (비워두면 잠금 해제)' : '설정할 비밀번호를 입력하세요';
+    const v = prompt(msg);
+    if (v === null) return;
+    if (v === '') { localStorage.removeItem(PIN_KEY); alert('잠금을 해제했어요.'); }
+    else { localStorage.setItem(PIN_KEY, await hash(v)); alert('비밀번호를 설정했어요. 다음 접속부터 적용됩니다.'); }
+  };
+  showLock();
+
+  // ---------- 달력 ----------
+  function renderCal() {
+    const y = view.getFullYear(), m = view.getMonth();
+    $('monthLabel').textContent = `${y}년 ${m+1}월`;
+    let html = ['일','월','화','수','목','금','토'].map(d => `<div class="dow">${d}</div>`).join('');
+    const first = new Date(y, m, 1).getDay(), last = new Date(y, m+1, 0).getDate();
+    for (let i = 0; i < first; i++) html += '<div></div>';
+    for (let d = 1; d <= last; d++) {
+      const k = `${y}-${pad(m+1)}-${pad(d)}`;
+      const cls = ['day', entries[k] ? 'has' : '', k === today ? 'today' : '', k === selected ? 'sel' : ''].join(' ');
+      html += `<button class="${cls}" data-d="${k}">${d}</button>`;
+    }
+    $('cal').innerHTML = html;
+  }
+  $('cal').onclick = e => { const k = e.target.dataset.d; if (k) select(k); };
+  $('prev').onclick = () => { view.setMonth(view.getMonth()-1); renderCal(); };
+  $('next').onclick = () => { view.setMonth(view.getMonth()+1); renderCal(); };
+
+  // ---------- 목록 / 검색 ----------
+  const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function renderList() {
+    const q = $('search').value.trim().toLowerCase();
+    const keys = Object.keys(entries).sort().reverse().filter(k => {
+      const e = entries[k];
+      return !q || (e.title + ' ' + e.body).toLowerCase().includes(q);
+    });
+    $('list').innerHTML = keys.length ? keys.map(k => {
+      const e = entries[k];
+      return `<div class="item" data-d="${k}"><small>${k} ${e.mood||''}${e.weather||''}</small><br>` +
+             `<b>${esc(e.title || '(제목 없음)')}</b><br><small>${esc(e.body.slice(0, 40))}</small></div>`;
+    }).join('') : '<p style="color:var(--sub)">일기가 없어요.</p>';
+  }
+  $('list').onclick = e => { const it = e.target.closest('.item'); if (it) select(it.dataset.d, true); };
+  $('search').oninput = renderList;
+
+  // ---------- 편집 ----------
+  function load() {
+    const e = entries[selected] || {};
+    $('date').value = selected;
+    $('title').value = e.title || '';
+    $('body').value = e.body || '';
+    $('mood').value = e.mood || '';
+    $('weather').value = e.weather || '';
+    $('status').textContent = e.updated ? `마지막 저장: ${new Date(e.updated).toLocaleString('ko-KR')}` : '새 일기';
+  }
+  function select(k, jump) {
+    selected = k;
+    if (jump) { view = new Date(k + 'T00:00'); view.setDate(1); }
+    load(); renderCal();
+  }
+  $('date').onchange = () => $('date').value && select($('date').value, true);
+
+  function save(auto) {
+    const e = { title: $('title').value.trim(), body: $('body').value, mood: $('mood').value, weather: $('weather').value };
+    if (!e.title && !e.body.trim()) { if (!auto) alert('내용을 입력해 주세요.'); return; }
+    e.updated = Date.now();
+    entries[selected] = e; persist();
+    $('status').textContent = (auto ? '자동 저장됨 ' : '저장됨 ') + new Date().toLocaleTimeString('ko-KR');
+    renderCal(); renderList();
+  }
+  $('saveBtn').onclick = () => save(false);
+  $('delBtn').onclick = () => {
+    if (!entries[selected]) return load();
+    if (!confirm(`${selected} 일기를 삭제할까요?`)) return;
+    delete entries[selected]; persist(); load(); renderCal(); renderList();
+  };
+  let timer;
+  ['title','body','mood','weather'].forEach(id => $(id).addEventListener('input', () => {
+    clearTimeout(timer); timer = setTimeout(() => save(true), 1500);
+  }));
+  document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(false); } });
+
+  // ---------- 백업 ----------
+  $('exportBtn').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(entries, null, 2)], {type: 'application/json'}));
+    a.download = `diary-backup-${today}.json`; a.click(); URL.revokeObjectURL(a.href);
+  };
+  $('importBtn').onclick = () => $('importFile').click();
+  $('importFile').onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      if (typeof data !== 'object' || Array.isArray(data)) throw 0;
+      const n = Object.keys(data).length;
+      if (!confirm(`${n}개의 일기를 가져옵니다. 같은 날짜는 덮어씁니다. 계속할까요?`)) return;
+      Object.assign(entries, data); persist(); load(); renderCal(); renderList();
+    } catch { alert('올바른 백업 파일이 아니에요.'); }
+    ev.target.value = '';
+  };
+
+  load(); renderCal(); renderList();
+})();
+</script>
+</body>
+</html>
