@@ -15,7 +15,8 @@ button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.danger{color:#c0392b}
 header{display:flex;align-items:center;gap:8px;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-header h1{margin:0;font-size:1.3rem;flex:1}
+header .sp{flex:1}
+@media (max-width:480px){header{padding:10px 12px;gap:6px}header button{padding:6px 9px;font-size:.85rem;white-space:nowrap}}
 main{display:grid;grid-template-columns:320px 1fr;gap:20px;max-width:1100px;margin:20px auto;padding:0 16px}
 @media (max-width:760px){main{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
@@ -113,7 +114,7 @@ body.locked>header,body.locked>main{visibility:hidden}
 </dialog>
 
 <header>
-  <h1>📔 나의 일기장</h1>
+  <span class="sp"></span>
   <button id="exportBtn">내보내기</button>
   <button id="importBtn">가져오기</button>
   <button id="gcBtn">📅 캘린더</button>
