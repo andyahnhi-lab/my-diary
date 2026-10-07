@@ -39,7 +39,14 @@ textarea{width:100%;min-height:340px;padding:12px;border:1px solid var(--line);b
 .status{color:var(--sub);font-size:.85rem;margin-left:auto}
 .lock{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:10}
 .lock .card{text-align:center;width:300px}
-.lock input{width:100%;padding:10px;text-align:center;letter-spacing:.4em;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin:10px 0;font-size:1.2rem}
+.lock input{width:100%;padding:10px;text-align:center;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin:10px 0;font-size:1.2rem}
+.lock .msg{min-height:1.5em;margin:6px 0;color:var(--sub)}
+.lock .steps{font-size:.8rem;color:var(--sub);margin:0 0 6px}
+.lock .fp{font-size:3rem;line-height:1.3}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);padding:18px;width:min(340px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+dialog h3{margin:0 0 6px}
+dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .hidden{display:none!important}
 </style>
 </head>
@@ -48,17 +55,35 @@ textarea{width:100%;min-height:340px;padding:12px;border:1px solid var(--line);b
 <div id="lock" class="lock hidden">
   <div class="card">
     <h2>🔒 나의 일기장</h2>
-    <p id="lockMsg">비밀번호를 입력하세요</p>
-    <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="12">
-    <button class="primary" id="unlockBtn">열기</button>
+    <p class="steps" id="steps"></p>
+    <div id="step1">
+      <input id="pin" type="password" autocomplete="off" maxlength="64" placeholder="비밀번호">
+      <button class="primary" id="unlockBtn">다음</button>
+    </div>
+    <div id="step2" class="hidden">
+      <div class="fp">👆</div>
+      <button class="primary" id="fpVerifyBtn">지문 인증</button>
+    </div>
+    <p class="msg" id="lockMsg"></p>
   </div>
 </div>
+
+<dialog id="sec">
+  <h3>🔑 보안 설정</h3>
+  <div class="status" id="secState" style="margin:0"></div>
+  <div class="col">
+    <button id="pwBtn">비밀번호 설정/변경</button>
+    <button id="fpBtn">지문 등록/해제</button>
+    <button class="danger" id="offBtn">잠금 모두 해제</button>
+    <button id="secClose">닫기</button>
+  </div>
+</dialog>
 
 <header>
   <h1>📔 나의 일기장</h1>
   <button id="exportBtn">내보내기</button>
   <button id="importBtn">가져오기</button>
-  <button id="pinBtn">🔑 비밀번호</button>
+  <button id="pinBtn">🔑 보안</button>
   <input id="importFile" type="file" accept="application/json" class="hidden">
 </header>
 
@@ -100,7 +125,7 @@ textarea{width:100%;min-height:340px;padding:12px;border:1px solid var(--line);b
 
 <script>
 (() => {
-  const KEY = 'diary.entries.v1', PIN_KEY = 'diary.pin.v1';
+  const KEY = 'diary.entries.v1';
   const $ = id => document.getElementById(id);
   const pad = n => String(n).padStart(2, '0');
   const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
@@ -114,30 +139,128 @@ textarea{width:100%;min-height:340px;padding:12px;border:1px solid var(--line);b
   let selected = today, view = new Date();
   view.setDate(1);
 
-  // ---------- 비밀번호 잠금 ----------
-  async function hash(s) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('diary:' + s));
+  // ---------- 2단계 잠금 (비밀번호 → 지문) ----------
+  const PW_KEY = 'diary.pw.v2', FP_KEY = 'diary.fp.v1';
+  const enc = new TextEncoder();
+  const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const rand = n => crypto.getRandomValues(new Uint8Array(n));
+  const get = k => { try { return localStorage.getItem(k); } catch { return null; } };
+
+  async function pbkdf2(pw, salt) {
+    const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
+    return b64(await crypto.subtle.deriveBits({name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 200000}, key, 256));
+  }
+  async function makePw(pw) {
+    const salt = rand(16);
+    return JSON.stringify({s: b64(salt), h: await pbkdf2(pw, salt)});
+  }
+  // 이전 버전(SHA-256 단일 해시)으로 저장된 비밀번호도 한 번 확인되면 새 방식으로 바꿔 저장
+  async function legacyHash(s) {
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode('diary:' + s));
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  const savedPin = () => localStorage.getItem(PIN_KEY);
+  async function checkPw(pw) {
+    const raw = get(PW_KEY);
+    if (raw) { const {s, h} = JSON.parse(raw); return await pbkdf2(pw, unb64(s)) === h; }
+    const old = get('diary.pin.v1');
+    if (old && await legacyHash(pw) === old) {
+      localStorage.setItem(PW_KEY, await makePw(pw)); localStorage.removeItem('diary.pin.v1'); return true;
+    }
+    return false;
+  }
+  const hasPw = () => !!(get(PW_KEY) || get('diary.pin.v1'));
+  const hasFp = () => !!get(FP_KEY);
+
+  async function fpSupported() {
+    try { return !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }
+    catch { return false; }
+  }
+  async function registerFp() {
+    const cred = await navigator.credentials.create({publicKey: {
+      challenge: rand(32),
+      rp: {name: '나의 일기장'},
+      user: {id: rand(16), name: 'diary', displayName: '일기장'},
+      pubKeyCredParams: [{type: 'public-key', alg: -7}, {type: 'public-key', alg: -257}],
+      authenticatorSelection: {authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged'},
+      timeout: 60000
+    }});
+    localStorage.setItem(FP_KEY, b64(cred.rawId));
+  }
+  async function verifyFp() {
+    await navigator.credentials.get({publicKey: {
+      challenge: rand(32),
+      allowCredentials: [{type: 'public-key', id: unb64(get(FP_KEY)), transports: ['internal']}],
+      userVerification: 'required',
+      timeout: 60000
+    }});
+  }
+
+  const unlock = () => $('lock').classList.add('hidden');
   function showLock() {
-    if (!savedPin()) return $('lock').classList.add('hidden');
-    $('lock').classList.remove('hidden'); $('pin').value = ''; $('pin').focus();
+    if (!hasPw()) return unlock();
+    $('lock').classList.remove('hidden');
+    $('step1').classList.remove('hidden'); $('step2').classList.add('hidden');
+    $('steps').textContent = hasFp() ? '1단계 / 2단계 · 비밀번호' : '비밀번호를 입력하세요';
+    $('lockMsg').textContent = ''; $('pin').value = ''; $('pin').focus();
   }
-  async function tryUnlock() {
-    if (await hash($('pin').value) === savedPin()) $('lock').classList.add('hidden');
-    else { $('lockMsg').textContent = '비밀번호가 틀렸어요'; $('pin').value = ''; }
+  async function stepPassword() {
+    if (!await checkPw($('pin').value)) { $('lockMsg').textContent = '비밀번호가 틀렸어요'; $('pin').value = ''; return; }
+    if (!hasFp()) return unlock();
+    $('step1').classList.add('hidden'); $('step2').classList.remove('hidden');
+    $('steps').textContent = '2단계 / 2단계 · 지문 인증';
+    stepFingerprint();
   }
-  $('unlockBtn').onclick = tryUnlock;
-  $('pin').onkeydown = e => e.key === 'Enter' && tryUnlock();
-  $('pinBtn').onclick = async () => {
-    const msg = savedPin() ? '새 비밀번호를 입력하세요 (비워두면 잠금 해제)' : '설정할 비밀번호를 입력하세요';
-    const v = prompt(msg);
-    if (v === null) return;
-    if (v === '') { localStorage.removeItem(PIN_KEY); alert('잠금을 해제했어요.'); }
-    else { localStorage.setItem(PIN_KEY, await hash(v)); alert('비밀번호를 설정했어요. 다음 접속부터 적용됩니다.'); }
-  };
+  async function stepFingerprint() {
+    $('lockMsg').textContent = '지문을 인식해 주세요';
+    try { await verifyFp(); unlock(); }
+    catch { $('lockMsg').textContent = '지문 인증에 실패했어요. 다시 시도해 주세요'; }
+  }
+  $('unlockBtn').onclick = stepPassword;
+  $('pin').onkeydown = e => e.key === 'Enter' && stepPassword();
+  $('fpVerifyBtn').onclick = stepFingerprint;
   showLock();
+
+  // ---------- 보안 설정 ----------
+  function secState() {
+    $('secState').textContent = `비밀번호: ${hasPw() ? '설정됨' : '없음'} · 지문: ${hasFp() ? '등록됨' : '없음'}`;
+  }
+  async function confirmCurrentPw() {
+    if (!hasPw()) return true;
+    const cur = prompt('현재 비밀번호를 입력하세요');
+    if (cur === null) return false;
+    if (await checkPw(cur)) return true;
+    alert('비밀번호가 틀렸어요.'); return false;
+  }
+  $('pinBtn').onclick = () => { secState(); $('sec').showModal(); };
+  $('secClose').onclick = () => $('sec').close();
+
+  $('pwBtn').onclick = async () => {
+    if (!await confirmCurrentPw()) return;
+    const a = prompt('새 비밀번호를 입력하세요 (4자 이상)');
+    if (a === null) return;
+    if (a.length < 4) return alert('4자 이상으로 입력해 주세요.');
+    if (prompt('한 번 더 입력하세요') !== a) return alert('비밀번호가 서로 달라요.');
+    localStorage.setItem(PW_KEY, await makePw(a)); localStorage.removeItem('diary.pin.v1');
+    secState(); alert('비밀번호를 설정했어요. 다음 접속부터 적용됩니다.');
+  };
+
+  $('fpBtn').onclick = async () => {
+    if (!hasPw()) return alert('지문은 비밀번호와 함께 쓰는 2단계 인증이에요. 먼저 비밀번호를 설정해 주세요.');
+    if (hasFp()) {
+      if (!await confirmCurrentPw() || !confirm('지문 인증을 해제할까요?')) return;
+      localStorage.removeItem(FP_KEY); secState(); return;
+    }
+    if (!await fpSupported()) return alert('이 기기나 브라우저에서는 지문(화면 잠금) 인증을 쓸 수 없어요.');
+    try { await registerFp(); secState(); alert('지문을 등록했어요. 다음 접속부터 비밀번호 → 지문 순서로 확인합니다.'); }
+    catch { alert('지문 등록이 취소되었거나 실패했어요.'); }
+  };
+
+  $('offBtn').onclick = async () => {
+    if (!hasPw()) return alert('설정된 잠금이 없어요.');
+    if (!await confirmCurrentPw() || !confirm('비밀번호와 지문 잠금을 모두 해제할까요?')) return;
+    ['diary.pin.v1', PW_KEY, FP_KEY].forEach(k => localStorage.removeItem(k)); secState();
+  };
 
   // ---------- 달력 ----------
   function renderCal() {
