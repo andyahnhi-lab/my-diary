@@ -80,8 +80,7 @@ body.locked>header,body.locked>main{visibility:hidden}
       <button class="primary" id="unlockBtn">다음</button>
     </div>
     <div id="step2" class="hidden">
-      <div class="fp">👆</div>
-      <button class="primary" id="fpVerifyBtn">지문 인증</button>
+      <button class="primary" id="fpVerifyBtn">추가 인증</button>
     </div>
     <p class="msg" id="lockMsg"></p>
   </div>
@@ -257,9 +256,9 @@ body.locked>header,body.locked>main{visibility:hidden}
     stepFingerprint();
   }
   async function stepFingerprint() {
-    $('lockMsg').textContent = '지문을 인식해 주세요';
+    $('lockMsg').textContent = '';
     try { await verifyFp(); unlock(); }
-    catch { $('lockMsg').textContent = '지문 인증에 실패했어요. 다시 시도해 주세요'; }
+    catch { $('lockMsg').textContent = '인증에 실패했어요. 다시 시도해 주세요'; }
   }
   $('unlockBtn').onclick = stepPassword;
   $('pin').onkeydown = e => e.key === 'Enter' && stepPassword();
