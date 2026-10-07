@@ -34,7 +34,6 @@ main{display:grid;grid-template-columns:320px 1fr;gap:20px;max-width:1100px;marg
 .item small{color:var(--sub)}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
 .row input[type=date],.row select{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
-.title{flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-weight:bold}
 textarea{width:100%;min-height:340px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);resize:vertical;font-size:1.02rem}
 .status{color:var(--sub);font-size:.85rem;margin-left:auto}
 .lock{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:10}
@@ -120,7 +119,6 @@ body.locked>header,body.locked>main{visibility:hidden}
         <option>☀️</option><option>⛅</option><option>☁️</option><option>🌧️</option>
         <option>⛈️</option><option>❄️</option><option>🌫️</option>
       </select>
-      <input class="title" id="title" placeholder="제목">
     </div>
     <textarea id="body" placeholder="오늘은 어떤 하루였나요?"></textarea>
     <div class="row" style="margin:10px 0 0">
@@ -307,12 +305,12 @@ body.locked>header,body.locked>main{visibility:hidden}
     const q = $('search').value.trim().toLowerCase();
     const keys = Object.keys(entries).sort().reverse().filter(k => {
       const e = entries[k];
-      return !q || (e.title + ' ' + e.body).toLowerCase().includes(q);
+      return !q || ((e.title || '') + ' ' + e.body).toLowerCase().includes(q);
     });
     $('list').innerHTML = keys.length ? keys.map(k => {
       const e = entries[k];
       return `<div class="item" data-d="${k}"><small>${k} ${e.mood||''}${e.weather||''}</small><br>` +
-             `<b>${esc(e.title || '(제목 없음)')}</b><br><small>${esc(e.body.slice(0, 40))}</small></div>`;
+             `<b>${esc(e.title || e.body.trim().split('\n')[0].slice(0, 30) || '(내용 없음)')}</b><br><small>${esc(e.body.slice(0, 40))}</small></div>`;
     }).join('') : '<p style="color:var(--sub)">일기가 없어요.</p>';
   }
   $('list').onclick = e => { const it = e.target.closest('.item'); if (it) select(it.dataset.d, true); };
@@ -322,7 +320,6 @@ body.locked>header,body.locked>main{visibility:hidden}
   function load() {
     const e = entries[selected] || {};
     $('date').value = selected;
-    $('title').value = e.title || '';
     $('body').value = e.body || '';
     $('mood').value = e.mood || '';
     $('weather').value = e.weather || '';
@@ -336,8 +333,8 @@ body.locked>header,body.locked>main{visibility:hidden}
   $('date').onchange = () => $('date').value && select($('date').value, true);
 
   function save(auto) {
-    const e = { title: $('title').value.trim(), body: $('body').value, mood: $('mood').value, weather: $('weather').value };
-    if (!e.title && !e.body.trim()) { if (!auto) alert('내용을 입력해 주세요.'); return; }
+    const e = { title: (entries[selected] || {}).title || '', body: $('body').value, mood: $('mood').value, weather: $('weather').value };
+    if (!e.body.trim()) { if (!auto) alert('내용을 입력해 주세요.'); return; }
     e.updated = Date.now();
     entries[selected] = e; persist();
     $('status').textContent = (auto ? '자동 저장됨 ' : '저장됨 ') + new Date().toLocaleTimeString('ko-KR');
@@ -350,7 +347,7 @@ body.locked>header,body.locked>main{visibility:hidden}
     delete entries[selected]; persist(); load(); renderCal(); renderList();
   };
   let timer;
-  ['title','body','mood','weather'].forEach(id => $(id).addEventListener('input', () => {
+  ['body','mood','weather'].forEach(id => $(id).addEventListener('input', () => {
     clearTimeout(timer); timer = setTimeout(() => save(true), 1500);
   }));
   document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(false); } });
