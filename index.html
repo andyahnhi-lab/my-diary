@@ -52,6 +52,13 @@ dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .ph button{position:absolute;top:3px;right:3px;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.65);color:#fff;line-height:1}
 #lb{padding:8px;max-width:96vw;background:#000;border:0}
 #lb img{display:block;max-width:92vw;max-height:88vh;margin:auto}
+.events{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:10px;background:var(--bg);font-size:.92rem}
+.events h4{margin:0 0 4px;font-size:.85rem;color:var(--sub)}
+.ev{display:flex;gap:8px;align-items:baseline;padding:2px 0}
+.ev i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--accent)}
+.ev .t{color:var(--sub);min-width:92px;font-size:.8rem;flex:none}
+.ev .w{color:var(--sub);font-size:.8rem}
+dialog input.f{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin-top:8px}
 body.locked>header,body.locked>main{visibility:hidden}
 .hidden{display:none!important}
 </style>
@@ -81,6 +88,18 @@ body.locked>header,body.locked>main{visibility:hidden}
   </div>
 </div>
 
+<dialog id="gc">
+  <h3>📅 구글 캘린더</h3>
+  <div class="status" id="gcState" style="margin:0"></div>
+  <input class="f" id="gcCid" placeholder="Client ID (…apps.googleusercontent.com)" autocomplete="off">
+  <div class="col">
+    <button id="gcSave">Client ID 저장</button>
+    <button class="primary" id="gcConnect">구글 캘린더 연결</button>
+    <button class="danger" id="gcOff">연결 해제</button>
+    <button id="gcClose">닫기</button>
+  </div>
+</dialog>
+
 <dialog id="sec">
   <h3>🔑 보안 설정</h3>
   <div class="status" id="secState" style="margin:0"></div>
@@ -96,6 +115,7 @@ body.locked>header,body.locked>main{visibility:hidden}
   <h1>📔 나의 일기장</h1>
   <button id="exportBtn">내보내기</button>
   <button id="importBtn">가져오기</button>
+  <button id="gcBtn">📅 캘린더</button>
   <button id="pinBtn">🔑 보안</button>
   <input id="importFile" type="file" accept="application/json" class="hidden">
 </header>
@@ -126,6 +146,7 @@ body.locked>header,body.locked>main{visibility:hidden}
         <option>⛈️</option><option>❄️</option><option>🌫️</option>
       </select>
     </div>
+    <div class="events hidden" id="events"></div>
     <textarea id="body" placeholder="오늘은 어떤 하루였나요?"></textarea>
     <div class="row" style="margin:10px 0 0">
       <button id="photoBtn">📷 사진 추가</button>
@@ -216,7 +237,7 @@ body.locked>header,body.locked>main{visibility:hidden}
     }});
   }
 
-  const unlock = () => { $('lock').classList.add('hidden'); document.body.classList.remove('locked'); };
+  const unlock = () => { $('lock').classList.add('hidden'); document.body.classList.remove('locked'); document.dispatchEvent(new Event('diary-unlocked')); };
   const skipped = () => get('diary.nolock') === '1';
   function showLock() {
     $('step0').classList.add('hidden'); $('step1').classList.remove('hidden'); $('step2').classList.add('hidden');
@@ -430,7 +451,7 @@ body.locked>header,body.locked>main{visibility:hidden}
     $('mood').value = e.mood || '';
     $('weather').value = e.weather || '';
     $('status').textContent = e.updated ? `마지막 저장: ${new Date(e.updated).toLocaleString('ko-KR')}` : '새 일기';
-    renderPhotos();
+    renderPhotos(); gcShow();
   }
   function select(k, jump) {
     if (timer) { clearTimeout(timer); timer = null; save(true); }
@@ -496,6 +517,131 @@ body.locked>header,body.locked>main{visibility:hidden}
     } catch { alert('올바른 백업 파일이 아니에요.'); }
     ev.target.value = '';
   };
+
+  // ---------- 구글 캘린더 (읽기 전용, 브라우저에서 직접 연결) ----------
+  const GCAL_CLIENT_ID = '';   // 비워 두면 앱의 📅 설정에서 입력한 값을 사용
+  const GC_TOKEN = 'diary.gcal.token', GC_CID = 'diary.gcal.cid', GC_ON = 'diary.gcal.on';
+  const GC_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+  let gcCache = {}, gcCals = null, gcSeq = 0;
+  const gcCid = () => GCAL_CLIENT_ID || get(GC_CID) || '';
+  const gcReady = () => !!(window.google && google.accounts && google.accounts.oauth2);
+  function gcToken() {
+    try { const t = JSON.parse(localStorage.getItem(GC_TOKEN)); return t && t.exp > Date.now() + 30000 ? t.tok : null; }
+    catch { return null; }
+  }
+  function loadGsi() {
+    return new Promise((res, rej) => {
+      if (gcReady()) return res();
+      const el = document.createElement('script'); el.src = 'https://accounts.google.com/gsi/client';
+      el.onload = () => res(); el.onerror = () => rej(new Error('gsi')); document.head.appendChild(el);
+    });
+  }
+  function gcConnect() {
+    const cid = gcCid();
+    if (!cid) return alert('먼저 Client ID를 입력하고 저장해 주세요.');
+    if (!gcReady()) { loadGsi().catch(() => {}); return alert('구글 로그인 준비 중이에요. 잠시 후 다시 눌러 주세요.'); }
+    google.accounts.oauth2.initTokenClient({
+      client_id: cid, scope: GC_SCOPE,
+      callback: r => {
+        if (r.error) { $('gcState').textContent = '연결에 실패했어요: ' + r.error; return; }
+        localStorage.setItem(GC_TOKEN, JSON.stringify({tok: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000}));
+        localStorage.setItem(GC_ON, '1'); gcCache = {}; gcCals = null; gcState(); gcShow();
+      },
+      error_callback: () => { $('gcState').textContent = '연결 창이 닫혔거나 열 수 없었어요.'; }
+    }).requestAccessToken();
+  }
+  async function gcApi(path, params) {
+    const tok = gcToken(); if (!tok) throw new Error('auth');
+    const u = new URL('https://www.googleapis.com/calendar/v3/' + path);
+    Object.entries(params || {}).forEach(([k, v]) => u.searchParams.set(k, v));
+    const r = await fetch(u, {headers: {Authorization: 'Bearer ' + tok}});
+    if (r.status === 401) { localStorage.removeItem(GC_TOKEN); throw new Error('auth'); }
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }
+  const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  function addEv(byDay, ev, cal) {
+    if (ev.status === 'cancelled' || !ev.start) return;
+    const allDay = !!ev.start.date;
+    const s0 = allDay ? new Date(ev.start.date + 'T00:00') : new Date(ev.start.dateTime);
+    const e0 = allDay ? new Date(ev.end.date + 'T00:00') : new Date(ev.end.dateTime);
+    const last = new Date(e0); if (allDay || (e0 > s0 && e0.getHours() + e0.getMinutes() + e0.getSeconds() === 0)) last.setDate(last.getDate() - 1);
+    const startDay = iso(s0), endDay = iso(e0);
+    for (let d = new Date(s0.getFullYear(), s0.getMonth(), s0.getDate()); d <= last || iso(d) === startDay; d.setDate(d.getDate() + 1)) {
+      const k = iso(d); let time;
+      if (allDay) time = '종일';
+      else if (startDay === endDay) time = `${hm(s0)}–${hm(e0)}`;
+      else if (k === startDay) time = `${hm(s0)} 시작`;
+      else if (k === endDay) time = `${hm(e0)} 종료`;
+      else time = '종일';
+      (byDay[k] = byDay[k] || []).push({title: ev.summary || '(제목 없음)', where: ev.location || '', time, color: cal.backgroundColor, sort: allDay ? -1 : s0.getTime() % 86400000});
+    }
+  }
+  async function gcMonth(ym) {
+    if (gcCache[ym]) return gcCache[ym];
+    if (!gcCals) gcCals = (await gcApi('users/me/calendarList', {minAccessRole: 'reader'})).items.filter(c => c.selected !== false);
+    const [y, m] = ym.split('-').map(Number), byDay = {};
+    await Promise.all(gcCals.map(async c => {
+      let pageToken;
+      do {
+        const r = await gcApi(`calendars/${encodeURIComponent(c.id)}/events`, {
+          timeMin: new Date(y, m - 1, 1).toISOString(), timeMax: new Date(y, m, 1).toISOString(),
+          singleEvents: 'true', orderBy: 'startTime', maxResults: '250', ...(pageToken ? {pageToken} : {})
+        });
+        (r.items || []).forEach(ev => addEv(byDay, ev, c)); pageToken = r.nextPageToken;
+      } while (pageToken);
+    }));
+    Object.values(byDay).forEach(a => a.sort((x, y) => x.sort - y.sort));
+    return gcCache[ym] = byDay;
+  }
+  function gcPanel(nodes) { const b = $('events'); b.replaceChildren(...nodes); b.classList.remove('hidden'); }
+  function gcHead(text) { const h = document.createElement('h4'); h.textContent = text; return h; }
+  function gcReconnectBtn() { const b = document.createElement('button'); b.textContent = '📅 캘린더 다시 연결'; b.onclick = gcConnect; return b; }
+  async function gcShow() {
+    const box = $('events'), seq = ++gcSeq;
+    if (document.body.classList.contains('locked')) return;
+    if (get(GC_ON) !== '1') return box.classList.add('hidden');
+    if (!gcToken()) return gcPanel([gcHead('📅 캘린더 연결이 만료되었어요'), gcReconnectBtn()]);
+    gcPanel([gcHead('📅 이 날의 일정 불러오는 중...')]);
+    try {
+      const list = (await gcMonth(selected.slice(0, 7)))[selected] || [];
+      if (seq !== gcSeq) return;
+      const nodes = [gcHead(`📅 이 날의 일정 ${list.length}개`)];
+      list.forEach(ev => {
+        const row = document.createElement('div'); row.className = 'ev';
+        const dot = document.createElement('i'); if (ev.color) dot.style.background = ev.color;
+        const t = document.createElement('span'); t.className = 't'; t.textContent = ev.time;
+        const name = document.createElement('span'); name.textContent = ev.title;
+        row.append(dot, t, name);
+        if (ev.where) { const w = document.createElement('span'); w.className = 'w'; w.textContent = '📍' + ev.where; row.append(w); }
+        nodes.push(row);
+      });
+      if (!list.length) { const n = document.createElement('div'); n.className = 'w ev'; n.textContent = '일정이 없어요.'; nodes.push(n); }
+      gcPanel(nodes);
+    } catch (e) {
+      if (seq !== gcSeq) return;
+      gcPanel(e.message === 'auth' ? [gcHead('📅 캘린더 연결이 만료되었어요'), gcReconnectBtn()]
+                                   : [gcHead('📅 일정을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.')]);
+    }
+  }
+  function gcState() {
+    $('gcState').textContent = get(GC_ON) === '1' ? (gcToken() ? '연결됨' : '연결이 만료됨 — 다시 연결해 주세요') : (gcCid() ? 'Client ID 저장됨 · 연결 안 됨' : 'Client ID 필요');
+  }
+  $('gcBtn').onclick = () => { $('gcCid').value = gcCid(); gcState(); if (gcCid()) loadGsi().catch(() => {}); $('gc').showModal(); };
+  $('gcClose').onclick = () => $('gc').close();
+  $('gcSave').onclick = () => {
+    const v = $('gcCid').value.trim();
+    if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(v)) return alert('Client ID 형식이 올바르지 않아요. …apps.googleusercontent.com 으로 끝나는 값이에요.');
+    localStorage.setItem(GC_CID, v); gcState(); loadGsi().catch(() => {});
+  };
+  $('gcConnect').onclick = gcConnect;
+  $('gcOff').onclick = () => {
+    const tok = gcToken();
+    if (tok && gcReady()) google.accounts.oauth2.revoke(tok, () => {});
+    [GC_TOKEN, GC_ON].forEach(k => localStorage.removeItem(k)); gcCache = {}; gcCals = null; gcState(); gcShow();
+  };
+  document.addEventListener('diary-unlocked', gcShow);
+  if (gcCid() && get(GC_ON) === '1') loadGsi().catch(() => {});
 
   load(); renderCal(); renderList();
 })();
