@@ -47,15 +47,23 @@ dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);co
 dialog::backdrop{background:rgba(0,0,0,.4)}
 dialog h3{margin:0 0 6px}
 dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+body.locked>header,body.locked>main{visibility:hidden}
 .hidden{display:none!important}
 </style>
 </head>
-<body>
+<body class="locked">
 
-<div id="lock" class="lock hidden">
+<div id="lock" class="lock">
   <div class="card">
     <h2>🔒 나의 일기장</h2>
     <p class="steps" id="steps"></p>
+    <div id="step0" class="hidden">
+      <p class="msg">처음이시네요. 일기장을 지킬 비밀번호를 정해 주세요.</p>
+      <input id="newPw" type="password" autocomplete="new-password" maxlength="64" placeholder="새 비밀번호 (4자 이상)">
+      <input id="newPw2" type="password" autocomplete="new-password" maxlength="64" placeholder="비밀번호 확인">
+      <button class="primary" id="setupBtn">설정하고 시작</button>
+      <button id="skipBtn">나중에</button>
+    </div>
     <div id="step1">
       <input id="pin" type="password" autocomplete="off" maxlength="64" placeholder="비밀번호">
       <button class="primary" id="unlockBtn">다음</button>
@@ -196,11 +204,16 @@ dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
     }});
   }
 
-  const unlock = () => $('lock').classList.add('hidden');
+  const unlock = () => { $('lock').classList.add('hidden'); document.body.classList.remove('locked'); };
+  const skipped = () => get('diary.nolock') === '1';
   function showLock() {
-    if (!hasPw()) return unlock();
-    $('lock').classList.remove('hidden');
-    $('step1').classList.remove('hidden'); $('step2').classList.add('hidden');
+    $('step0').classList.add('hidden'); $('step1').classList.remove('hidden'); $('step2').classList.add('hidden');
+    if (!hasPw()) {
+      if (skipped()) return unlock();
+      $('step1').classList.add('hidden'); $('step0').classList.remove('hidden');
+      $('steps').textContent = '보안 설정'; $('lockMsg').textContent = ''; $('newPw').focus();
+      return;
+    }
     $('steps').textContent = hasFp() ? '1단계 / 2단계 · 비밀번호' : '비밀번호를 입력하세요';
     $('lockMsg').textContent = ''; $('pin').value = ''; $('pin').focus();
   }
@@ -219,6 +232,14 @@ dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
   $('unlockBtn').onclick = stepPassword;
   $('pin').onkeydown = e => e.key === 'Enter' && stepPassword();
   $('fpVerifyBtn').onclick = stepFingerprint;
+  $('setupBtn').onclick = async () => {
+    const a = $('newPw').value;
+    if (a.length < 4) { $('lockMsg').textContent = '4자 이상으로 입력해 주세요'; return; }
+    if (a !== $('newPw2').value) { $('lockMsg').textContent = '비밀번호가 서로 달라요'; return; }
+    localStorage.setItem(PW_KEY, await makePw(a)); localStorage.removeItem('diary.nolock'); $('newPw').value = $('newPw2').value = '';
+    unlock();
+  };
+  $('skipBtn').onclick = () => { localStorage.setItem('diary.nolock', '1'); unlock(); };
   showLock();
 
   // ---------- 보안 설정 ----------
@@ -241,7 +262,7 @@ dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
     if (a === null) return;
     if (a.length < 4) return alert('4자 이상으로 입력해 주세요.');
     if (prompt('한 번 더 입력하세요') !== a) return alert('비밀번호가 서로 달라요.');
-    localStorage.setItem(PW_KEY, await makePw(a)); localStorage.removeItem('diary.pin.v1');
+    localStorage.setItem(PW_KEY, await makePw(a)); localStorage.removeItem('diary.pin.v1'); localStorage.removeItem('diary.nolock');
     secState(); alert('비밀번호를 설정했어요. 다음 접속부터 적용됩니다.');
   };
 
@@ -259,7 +280,7 @@ dialog .col{display:flex;flex-direction:column;gap:8px;margin-top:12px}
   $('offBtn').onclick = async () => {
     if (!hasPw()) return alert('설정된 잠금이 없어요.');
     if (!await confirmCurrentPw() || !confirm('비밀번호와 지문 잠금을 모두 해제할까요?')) return;
-    ['diary.pin.v1', PW_KEY, FP_KEY].forEach(k => localStorage.removeItem(k)); secState();
+    ['diary.pin.v1', PW_KEY, FP_KEY].forEach(k => localStorage.removeItem(k)); localStorage.setItem('diary.nolock', '1'); secState();
   };
 
   // ---------- 달력 ----------
